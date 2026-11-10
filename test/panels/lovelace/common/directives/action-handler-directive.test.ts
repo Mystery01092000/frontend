@@ -235,3 +235,66 @@ describe("action-handler keyboard-only bindings", () => {
     el.remove();
   });
 });
+
+describe("action-handler presses released over another child", () => {
+  let row: HTMLElement;
+  let name: HTMLElement;
+  let toggle: HTMLElement;
+  let actions: string[];
+
+  // Events from the browser are composed, so they leave the shadow root.
+  const press = (type: string) => mouse(type, { composed: true });
+
+  beforeEach(() => {
+    vi.useFakeTimers();
+    // A row with a name and a toggle whose switch lives in a shadow root, like
+    // hui-generic-entity-row with ha-entity-toggle.
+    row = document.createElement("div");
+    name = document.createElement("div");
+    const host = document.createElement("div");
+    const label = document.createElement("label");
+    toggle = document.createElement("span");
+    label.appendChild(toggle);
+    host.attachShadow({ mode: "open" }).appendChild(label);
+    row.append(name, host);
+    document.body.appendChild(row);
+    actions = actionsOn(row);
+    actionHandlerBind(row, {});
+  });
+
+  afterEach(() => {
+    vi.runOnlyPendingTimers();
+    vi.useRealTimers();
+    row.remove();
+  });
+
+  it("does not tap when a press on a control is released over the name", () => {
+    toggle.dispatchEvent(press("mousedown"));
+    // Chrome sends the click to the common ancestor of press and release.
+    row.dispatchEvent(press("click"));
+    expect(actions).toEqual([]);
+  });
+
+  it("still taps when a press is released where it started", () => {
+    name.dispatchEvent(press("mousedown"));
+    name.dispatchEvent(press("click"));
+    expect(actions).toEqual(["tap"]);
+  });
+
+  it("still taps when a press moves between non-interactive parts", () => {
+    const icon = document.createElement("div");
+    row.prepend(icon);
+    name.dispatchEvent(press("mousedown"));
+    row.dispatchEvent(press("click"));
+    icon.remove();
+    expect(actions).toEqual(["tap"]);
+  });
+
+  it("taps again on the next press after an aborted one", () => {
+    toggle.dispatchEvent(press("mousedown"));
+    row.dispatchEvent(press("click"));
+    name.dispatchEvent(press("mousedown"));
+    name.dispatchEvent(press("click"));
+    expect(actions).toEqual(["tap"]);
+  });
+});

@@ -49,6 +49,25 @@ const eventCoordinates = (ev: Event): { x: number; y: number } => {
 const activeTouchCount = (ev: Event): number =>
   (ev as TouchEvent).touches?.length ?? 0;
 
+// Controls inside a bound element (a row's toggle or slider) that handle their
+// own clicks.
+const INTERACTIVE_SELECTOR =
+  "a[href], button, input, label, select, textarea, [role=button], [role=checkbox], [role=combobox], [role=slider], [role=switch]";
+
+// Chrome dispatches the click of a press that was released over another
+// element to their common ancestor. Returns whether the press started on a
+// control that the release then left, e.g. dragging from a row's toggle onto
+// its name, so the click must not count as a tap of the bound element.
+const pressLeftControl = (pressPath: EventTarget[], click: Event): boolean => {
+  const releaseIndex = pressPath.indexOf(click.composedPath()[0]);
+  return (
+    releaseIndex > 0 &&
+    pressPath
+      .slice(0, releaseIndex)
+      .some((el) => el instanceof Element && el.matches(INTERACTIVE_SELECTOR))
+  );
+};
+
 @customElement("action-handler")
 class ActionHandler extends HTMLElement implements ActionHandlerType {
   public holdTime = 500;
@@ -68,6 +87,9 @@ class ActionHandler extends HTMLElement implements ActionHandlerType {
   // The delegated target of the gesture in flight on a container binding
   // (options.resolve); undefined while no resolved gesture is active.
   private resolved?: ActionHandlerResolution;
+
+  // The composed path of the mouse press in flight.
+  private pressPath?: EventTarget[];
 
   // eslint-disable-next-line lit/lifecycle-super -- not a LitElement
   public connectedCallback() {
@@ -165,6 +187,7 @@ class ActionHandler extends HTMLElement implements ActionHandlerType {
 
     element.actionHandler.start = (ev: Event) => {
       this.cancelled = false;
+      this.pressPath = ev.type === "mousedown" ? ev.composedPath() : undefined;
       const { x, y } = eventCoordinates(ev);
 
       if (options.resolve) {
@@ -205,6 +228,19 @@ class ActionHandler extends HTMLElement implements ActionHandlerType {
       ) {
         if (options.resolve) {
           this.resolved = undefined;
+        }
+        return;
+      }
+
+      if (
+        ev.type === "click" &&
+        this.pressPath &&
+        pressLeftControl(this.pressPath, ev)
+      ) {
+        if (this.timer) {
+          this._stopAnimation();
+          clearTimeout(this.timer);
+          this.timer = undefined;
         }
         return;
       }
