@@ -1,4 +1,5 @@
 import { mdiThermometerWater } from "@mdi/js";
+import type { UnsubscribeFunc } from "home-assistant-js-websocket";
 import { css, html, LitElement, nothing } from "lit";
 import { customElement, property, state } from "lit/decorators";
 import { cache } from "lit/directives/cache";
@@ -23,6 +24,8 @@ import {
   updateAreaRegistryEntry,
   type AreaRegistryEntry,
 } from "../../../../../data/area/area_registry";
+import { subscribeEntityRegistry } from "../../../../../data/entity/entity_registry";
+import { SubscribeMixin } from "../../../../../mixins/subscribe-mixin";
 import {
   haCardSizeLarge,
   haCardSizeSmall,
@@ -37,17 +40,32 @@ import {
   AREA_STRATEGY_GROUP_ICONS,
   AREA_STRATEGY_GROUPS,
   getAreaGroupedEntities,
+  pruneAreasOptionsEntities,
 } from "../helpers/areas-strategy-helper";
 
 @customElement("hui-areas-dashboard-strategy-editor")
 export class HuiAreasDashboardStrategyEditor
-  extends LitElement
+  extends SubscribeMixin(LitElement)
   implements LovelaceStrategyEditor
 {
   @property({ attribute: false }) public hass?: HomeAssistant;
 
   @state()
   private _config?: AreasDashboardStrategyConfig;
+
+  // All entity ids in the entity registry. Unlike hass.entities this includes
+  // disabled entities, which must keep their hidden/order settings.
+  private _registryEntityIds?: Set<string>;
+
+  protected hassSubscribe(): UnsubscribeFunc[] {
+    return [
+      subscribeEntityRegistry(this.hass!.connection, (entries) => {
+        this._registryEntityIds = new Set(
+          entries.map((entry) => entry.entity_id)
+        );
+      }),
+    ];
+  }
 
   public setConfig(config: AreasDashboardStrategyConfig): void {
     this._config = config;
@@ -228,7 +246,7 @@ export class HuiAreasDashboardStrategyEditor
       delete newConfig.areas_options;
     }
 
-    fireEvent(this, "config-changed", { config: newConfig });
+    this._configChanged(newConfig);
   };
 
   private _back(): void {
@@ -267,7 +285,7 @@ export class HuiAreasDashboardStrategyEditor
       ...value,
     };
 
-    fireEvent(this, "config-changed", { config: newConfig });
+    this._configChanged(newConfig);
   }
 
   private _entitiesDisplayChanged(ev: CustomEvent): void {
@@ -292,7 +310,24 @@ export class HuiAreasDashboardStrategyEditor
       },
     };
 
-    fireEvent(this, "config-changed", { config: newConfig });
+    this._configChanged(newConfig);
+  }
+
+  private _configChanged(config: AreasDashboardStrategyConfig): void {
+    const registryIds = this._registryEntityIds;
+    // Without the registry an existing but disabled entity can't be told
+    // apart from a deleted one, so only prune once it is loaded.
+    if (registryIds && config.areas_options) {
+      config = {
+        ...config,
+        areas_options: pruneAreasOptionsEntities(
+          config.areas_options,
+          (entityId) =>
+            registryIds.has(entityId) || entityId in this.hass!.states
+        ),
+      };
+    }
+    fireEvent(this, "config-changed", { config });
   }
 
   static get styles() {

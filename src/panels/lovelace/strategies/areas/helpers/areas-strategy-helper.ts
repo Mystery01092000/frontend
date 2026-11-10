@@ -17,6 +17,7 @@ import type {
   LovelaceCardFeatureContext,
 } from "../../../card-features/types";
 import type { TileCardConfig } from "../../../cards/types";
+import type { AreasDashboardStrategyConfig } from "../areas-dashboard-strategy";
 
 export const AREA_STRATEGY_GROUPS = [
   "lights",
@@ -50,6 +51,45 @@ interface DisplayOptions {
 }
 
 type AreaGroupsDisplayOptions = Record<string, DisplayOptions>;
+
+type AreasOptions = NonNullable<AreasDashboardStrategyConfig["areas_options"]>;
+
+/**
+ * Removes entity ids that no longer exist from the hidden and order lists of
+ * every area group. Deleted entities are not listed in the area editor, so
+ * their ids could otherwise never be removed from the config.
+ */
+export const pruneAreasOptionsEntities = (
+  areasOptions: AreasOptions | undefined,
+  entityExists: (entityId: string) => boolean
+): AreasOptions | undefined => {
+  if (!areasOptions) {
+    return areasOptions;
+  }
+  return Object.fromEntries(
+    Object.entries(areasOptions).map(([areaId, areaOptions]) => {
+      if (!areaOptions.groups_options) {
+        return [areaId, areaOptions];
+      }
+      const groupsOptions = Object.fromEntries(
+        Object.entries(areaOptions.groups_options).map(([group, options]) => {
+          const pruned: DisplayOptions = { ...options };
+          for (const key of ["hidden", "order"] as const) {
+            if (!pruned[key]) {
+              continue;
+            }
+            pruned[key] = pruned[key].filter(entityExists);
+            if (pruned[key].length === 0) {
+              delete pruned[key];
+            }
+          }
+          return [group, pruned];
+        })
+      );
+      return [areaId, { ...areaOptions, groups_options: groupsOptions }];
+    })
+  );
+};
 
 export const getAreaGroupedEntities = (
   area: string,
