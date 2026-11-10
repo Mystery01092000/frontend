@@ -1221,8 +1221,14 @@ export class HuiEnergySourcesTableCard
     }
     .mdc-data-table__header-cell--numeric {
       text-align: var(--float-end);
-      white-space: nowrap;
+      /* Let long (translated) labels like "Previous energy" wrap, so the
+         compare columns are sized by their values and fit narrow cards. */
+      white-space: normal;
       width: 1%;
+    }
+    .mdc-data-table__cell--numeric,
+    .mdc-data-table__header-cell--numeric {
+      padding: 0 var(--ha-space-3);
     }
   `;
 }
